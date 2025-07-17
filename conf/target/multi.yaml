@@ -1,0 +1,32 @@
+_target_: Target
+
+model:
+  name: DummyModel
+  model_name: "dummy"
+
+objective:
+  name: MultiObjective
+  weighted_objectives:
+    - weight: 0.7
+      objective:
+        name: DummyObjective
+        model: ${target.model}
+    - weight: 0.3
+      objective:
+        name: DummyObjective
+        model: ${target.model}
+    
+
+optimizer:
+  name: MultiOptimizer
+  epsilon: 0.3
+  window_size: 5
+  optimizers:
+    - name: RandomOptimizer
+
+corpus:
+  name: Corpus
+  objective: ${target.objective}
+  initial_inputs:
+    - "hello"
+    - "world" 

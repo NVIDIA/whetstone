@@ -1,0 +1,35 @@
+_target_: Target
+
+model:
+  name: HFTransformersModel
+  model_name: arnir0/Tiny-LLM
+  device: mps
+
+objective:
+  name: StrMatchObjective
+  model: ${target.model}
+  batch_size: 100
+  template:
+    - role: system
+      content: You are a helpful assistant.
+    - role: user
+      content: "{OPTIM}"
+    - role: assistant
+      content: "{TARGET} Your desired response goes here."
+
+optimizer:
+  name: MultiOptimizer
+  optimizers:
+    - name: GCG
+      model: ${target.model}
+      filter_ids: true
+      search_width: 1000
+    - name: RandomOptimizer
+
+corpus:
+  name: Corpus
+  objective: ${target.objective}
+  initial_inputs:
+    - "this is a placeholder text that will be optimized"
+
+

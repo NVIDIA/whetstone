@@ -1,0 +1,11 @@
+defaults:
+  - base
+  - _self_
+
+iterations: 100
+
+hydra:
+  job:
+    name: named_experiment
+  run:
+    dir: runs/${hydra.job.name}/

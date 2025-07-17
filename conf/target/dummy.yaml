@@ -1,0 +1,19 @@
+_target_: Target
+
+model:
+  name: DummyModel
+  model_name: "dummy"
+
+objective:
+  name: DummyObjective
+  model: ${target.model}
+
+optimizer:
+  name: RandomOptimizer
+
+corpus:
+  name: Corpus
+  objective: ${target.objective}
+  initial_inputs:
+    - "hello"
+    - "world"
