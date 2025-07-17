@@ -17,16 +17,18 @@ class HFTransformersModel(Model):
     from the `transformers` library.
     """
 
-    def __init__(self, model_name: str, device: str | None = None, generation_kwargs: dict | None = None):
+    def __init__(self, model_name: str, revision: str | None = None, device: str | None = None, generation_kwargs: dict | None = None):
         """Initializes the HFTransformersModel.
 
         Args:
             model_name: The name of the pre-trained Hugging Face model (e.g., 'gpt2').
+            revision: The revision of the model to use. Revision will be pinned for extra security.
             device: The device to load the model onto ('cpu', 'cuda', etc.). Auto-detects if None.
             generation_kwargs: Default keyword arguments for the `generate` method.
         """
         self.model_name = model_name
-        
+        self.revision = revision
+
         # Determine device
         if device:
             self.device = torch.device(device)
@@ -37,8 +39,8 @@ class HFTransformersModel(Model):
 
         self.generation_kwargs = generation_kwargs or {}
     
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_safetensors=True)
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, use_safetensors=True).to(self.device)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, revision=revision, use_safetensors=True)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, revision=revision, use_safetensors=True).to(self.device)
 
     def generate(self, x: str, max_tokens: int = 100, **kwargs) -> str:
         """Generates text completion for a given prompt using the loaded HF model.
