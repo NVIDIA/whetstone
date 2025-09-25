@@ -66,7 +66,7 @@ class ModelSpecificInterface():
 class HFTransformerImpl(ModelSpecificInterface):
     def __init__(self, base_obj: Model):
         super().__init__(base_obj)
-        self.prefix_cache = None
+        self.prefix_cache_single = None
 
     def embedding_layer(self):
         return self.inner.model.get_input_embeddings()
@@ -109,27 +109,34 @@ class HFTransformerImpl(ModelSpecificInterface):
         return processed_template
     
     def set_prefix(self, prefix_embeds: Tensor, max_batch_size: int, max_tokens: int):
-        log.debug(f"Computing and caching prefix KV store for input shape: {prefix_embeds.shape}")
+        self._prefix_embeds = prefix_embeds if prefix_embeds is not None else self._prefix_embeds
+
+        log.debug(f"Computing and caching prefix KV store for input shape: {self._prefix_embeds.shape}")
         with torch.no_grad():
             outputs = self.inner.model(
-                inputs_embeds=prefix_embeds, 
-                past_key_values=StaticCache(config=self.inner.model.config, max_batch_size=1, max_cache_len=max_tokens, device=self.device()),
+                inputs_embeds=self._prefix_embeds, 
+                past_key_values=StaticCache(config=self.inner.model.config, max_cache_len=max_tokens, device=self.device()),
                 use_cache=True
             )
-            self.prefix_cache = outputs.past_key_values
-            log.debug(f"Prefix cache computed. Type: {type(self.prefix_cache)}")
+            self.prefix_cache_single = outputs.past_key_values
+            self.last_prefix_cache = (1, self.prefix_cache_single)
+            log.debug(f"Prefix cache computed. Type: {type(self.prefix_cache_single)}")
     
     def forward(self, input_embeds: Tensor):
-        if self.prefix_cache:
-            # Resize to batch dim
-            resized_cache = copy.deepcopy(self.prefix_cache)
-            for layer_idx in range(len(resized_cache.key_cache)):
-                resized_cache.key_cache[layer_idx] = resized_cache.key_cache[layer_idx].repeat_interleave(input_embeds.shape[0], dim=0)
-                resized_cache.value_cache[layer_idx] = resized_cache.value_cache[layer_idx].repeat_interleave(input_embeds.shape[0], dim=0)
+        if self.prefix_cache_single:
+            batch_size = input_embeds.shape[0]
+            if batch_size != self.last_prefix_cache[0]:
+                new_prefix_cache = copy.deepcopy(self.prefix_cache_single)
 
+                for layeridx in range(len(new_prefix_cache.layers)):
+                    new_prefix_cache.layers[layeridx].keys = new_prefix_cache.layers[layeridx].keys.repeat_interleave(batch_size, dim=0)
+                    new_prefix_cache.layers[layeridx].values = new_prefix_cache.layers[layeridx].values.repeat_interleave(batch_size, dim=0)
+
+                self.last_prefix_cache = (batch_size, new_prefix_cache)
+            
             return self.inner.model(
                 inputs_embeds=input_embeds,
-                past_key_values=resized_cache,
+                past_key_values=self.last_prefix_cache[1],
                 use_cache=True
             ).logits
         else:
