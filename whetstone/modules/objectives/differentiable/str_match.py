@@ -3,7 +3,6 @@
 
 from abc import ABC, abstractmethod
 import copy
-import gc
 import json
 import logging
 from dataclasses import dataclass, field
@@ -18,7 +17,7 @@ from whetstone.core.model import Model
 from whetstone.core.module import BaseState, ModuleRegistry, StatefulModule
 from whetstone.core.objective import DifferentiableObjective, Sample
 from whetstone.modules.models.hf_transformers import HFTransformersModel
-from whetstone.utils import JSONType, mellowmax # Assuming mellowmax is still in utils
+from whetstone.utils import JSONType, clear_memory, mellowmax # Assuming mellowmax is still in utils
 
 log = logging.getLogger(__name__)
 
@@ -289,9 +288,7 @@ class StrMatchObjective(DifferentiableObjective, StatefulModule[StrMatchObjectiv
                     results.append(Sample(inputs[i+j], self._normalize_loss(loss[j]).item(), output_strs[j]))
                 
                 del logits
-                gc.collect()
-                torch.mps.empty_cache()
-                torch.cuda.empty_cache()
+                clear_memory()
                     
             return results
 
@@ -326,12 +323,6 @@ class StrMatchObjective(DifferentiableObjective, StatefulModule[StrMatchObjectiv
             results.append((Sample(input, self._normalize_loss(loss).item()), grads))
             del input_ids_1h
             del logits
-            gc.collect()
-            torch.mps.empty_cache()
-            torch.cuda.empty_cache()
+            clear_memory()
 
         return results
-        
-            
-            
-        
