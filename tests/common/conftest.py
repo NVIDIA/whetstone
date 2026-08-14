@@ -24,7 +24,8 @@ def basic_constraint():
     return lambda x: x[0] in ["a", "b"]
 
 @pytest.fixture
-def corpus(dummy_objective, basic_input_strs, tmp_path, basic_constraint):
+def corpus(dummy_objective, basic_input_strs, tmp_path, basic_constraint, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     return Corpus(objective=dummy_objective, initial_inputs=basic_input_strs, corpus_dir=tmp_path / "corpus", constraints=[basic_constraint])
 
 @pytest.fixture

@@ -3,7 +3,6 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-import importlib
 from typing import Any, Dict, TypeVar, Generic, get_args
 import yaml
 from pathlib import Path
@@ -181,29 +180,26 @@ class ModuleRegistry:
         for instance_id, full_info in state_data.items():
             state_class_name = full_info["state_class"]
 
-            # Split into module and class name
-            module_name, class_name = state_class_name.rsplit('.', 1)
-            state_class = None
+            instance = cls._instances.get(instance_id)
+            if instance is None:
+                raise ValueError(f"Instance {instance_id} not found")
+            if not isinstance(instance, StatefulModule):
+                raise TypeError(f"Instance {instance_id} is not a StatefulModule")
 
-            while state_class is None:
-                # Import the module and get the class safely
-                try:
-                    state_class = getattr(importlib.import_module(module_name), class_name)
-                    if not issubclass(state_class, BaseState):
-                        raise ValueError(f"State class {state_class_name} is not a subclass of BaseState")
-                except AttributeError:
-                    if "." in module_name:
-                        module_name = module_name.rsplit('.', 1)[0]
-                    else:
-                        break
-
-            if state_class is None:
-                raise ValueError(f"State class {state_class_name} not found")
+            state_class = instance._state_type
+            expected_state_class_name = (
+                f"{instance.__class__.__module__}.{state_class.__name__}"
+            )
+            if state_class_name != expected_state_class_name:
+                raise ValueError(
+                    f"Unexpected state class {state_class_name!r} for {instance_id}; "
+                    f"expected {expected_state_class_name!r}"
+                )
             
             if full_info["state"] is None:
                 raise ValueError(f"{state_class_name} state is None. Did you forget to implement to_json()?")
 
-            state = state_class.init(full_info["state"])
+            state = state_class(instance, full_info["state"])
 
             if state is None:
                 raise ValueError(f"{state_class_name}.from_json returned None for {full_info['state']}")

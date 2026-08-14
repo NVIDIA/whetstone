@@ -6,7 +6,9 @@ from functools import lru_cache
 import json
 import logging
 import os
+from pathlib import Path
 import random
+import re
 from typing import Dict, Generic, Iterator, List, Set, TypeVar
 import typing
 
@@ -19,6 +21,7 @@ from .objective import Objective, Sample
 
 log = logging.getLogger(__name__)
 
+_CORPUS_FILE_RE = re.compile(r"-?\d+_[0-9a-f]{5}\.json\Z")
 
 class CorpusState(BaseState):
     def __init__(self, instance: "Corpus", persisted_data: JSONType | None = None):
@@ -51,44 +54,74 @@ class Corpus(StatefulModule[CorpusState]):
     epsilon: float = 0.3
     collapse_objective_outputs: bool = False # Keeps only the best input with a specific output dict
 
+    def _validated_corpus_path(self) -> Path:
+        """Return a corpus path confined to a child of the working directory."""
+        working_directory = Path.cwd().resolve()
+        corpus_path = Path(self.corpus_dir).expanduser().resolve(strict=False)
+        if (
+            corpus_path == working_directory
+            or working_directory not in corpus_path.parents
+        ):
+            raise ValueError(
+                f"corpus_dir must be inside the working directory: {corpus_path}"
+            )
+        return corpus_path
+
     def __post_init__(self):
-        # Load existing samples from the corpus directory
-        if os.path.exists(self.corpus_dir):
+        corpus_path = self._validated_corpus_path()
+
+        # Load only regular files created by Corpus.save().
+        if corpus_path.exists():
+            if not corpus_path.is_dir():
+                raise ValueError(f"corpus_dir is not a directory: {corpus_path}")
+
             self.state.samples = []
-            for f in os.listdir(self.corpus_dir):
-                with open(os.path.join(self.corpus_dir, f), "r") as file:
-                    self.add(Sample.from_json(json.loads(file.read())))
-        
+            for corpus_file in sorted(corpus_path.iterdir()):
+                if (
+                    not corpus_file.is_symlink()
+                    and corpus_file.is_file()
+                    and _CORPUS_FILE_RE.fullmatch(corpus_file.name)
+                ):
+                    with corpus_file.open("r") as file:
+                        self.add(Sample.from_json(json.load(file)))
+
         if len(self.state.samples) == 0:
             initial_inputs = self.initial_inputs
             self.add_many(self.objective.evaluate_batch(initial_inputs))
 
     def save(self):
         """Save the corpus to the corpus directory."""
-        if not os.path.exists(self.corpus_dir):
-            os.makedirs(self.corpus_dir)
-        
-        # Clear existing files
-        for file in os.listdir(self.corpus_dir):
-            os.remove(os.path.join(self.corpus_dir, file))
-        
+        corpus_path = self._validated_corpus_path()
+        corpus_path.mkdir(parents=True, exist_ok=True)
+
+        # Clear only regular corpus files; unrelated files and symlinks are preserved.
+        for corpus_file in corpus_path.iterdir():
+            if (
+                not corpus_file.is_symlink()
+                and corpus_file.is_file()
+                and _CORPUS_FILE_RE.fullmatch(corpus_file.name)
+            ):
+                corpus_file.unlink()
+
         # Save each input with a filename based on its score
         for sample in self.state.samples:
             score = sample.score
-            
+
             # Format score to 4 digits (e.g., 0.001 -> 0001)
             score_str = str(int(score * 1000)).zfill(4)
-            
+
             # Create a unique filename
             import hashlib
             hash_obj = hashlib.sha256(str(sample).encode())
             unique_id = hash_obj.hexdigest()[:5]
             filename = f"{score_str}_{unique_id}.json"
-            filepath = os.path.join(self.corpus_dir, filename)
-            
+            filepath = corpus_path / filename
+            if filepath.is_symlink():
+                raise ValueError(f"Refusing to overwrite corpus symlink: {filepath}")
+
             # Write the input to the file
-            with open(filepath, "w") as f:
-                f.write(json.dumps(sample.to_json(), indent=4))
+            with filepath.open("w") as f:
+                json.dump(sample.to_json(), f, indent=4)
 
     def validate_input(self, input: str) -> bool:
         """Check if the input satisfies the constraints."""

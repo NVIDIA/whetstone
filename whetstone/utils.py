@@ -9,13 +9,10 @@ import logging
 import math
 import random
 import string
-from importlib import import_module
 from typing import Dict, Callable, Any, Type
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 import torch
-from omegaconf import DictConfig, ListConfig
-from omegaconf.basecontainer import BaseContainer
 from torch import Tensor
 
 INIT_CHARS = [
@@ -28,94 +25,6 @@ logger = logging.getLogger(__name__)
 
 JSONType = dict[str, "JSONType"] | list["JSONType"] | str | int | float | bool
 JSONDict = dict[str, JSONType]
-
-class AttrDict(dict):
-    def __getattr__(self, item):
-        try:
-            return self[item]
-        except KeyError:
-            raise AttributeError(f"'AttrDict' object has no attribute '{item}'")
-
-    def __setattr__(self, key, value):
-        self[key] = value
-
-
-def instantiate(cfg: DictConfig, obj_global_cache: Dict = None):
-    """
-    DANGEROUS: Untrusted cfg can lead to arbitrary code execution.
-
-    Instantiates all/this component of a config, using dependency injection.
-    Requires dependencies to be in a DAG.
-    Allows you to define things like the model once and then reference them repeatedly.
-    """
-    if obj_global_cache is None:
-        obj_global_cache = dict()
-
-    if not isinstance(cfg, BaseContainer):
-        return cfg
-
-    target = cfg.get("_target_", None)
-
-    local_objs = AttrDict()
-    for key, sub_cfg in cfg.items():
-        if key.startswith("_") and key.endswith("_"):
-            continue
-
-        if instance := obj_global_cache.get(str(sub_cfg)):
-            local_objs[key] = instance
-        elif isinstance(sub_cfg, DictConfig):
-            instance = instantiate(sub_cfg, obj_global_cache)
-
-            if not isinstance(instance, BaseContainer):
-                obj_global_cache[str(sub_cfg)] = instance
-                local_objs[key] = instance
-        elif isinstance(sub_cfg, ListConfig):
-            instances = []
-            for subsub_cfg in sub_cfg:
-                if reference := obj_global_cache.get(str(subsub_cfg)):
-                    instances.append(reference)
-                else:
-                    instances.append(instantiate(subsub_cfg, obj_global_cache))
-
-            local_objs[key] = list()
-            for subsub_cfg, instance in zip(sub_cfg, instances):
-                if not isinstance(instance, BaseContainer):
-                    obj_global_cache[str(subsub_cfg)] = instance
-
-                local_objs[key].append(instance)
-
-    for key, sub_cfg in cfg.items():
-        if not (key.startswith("_") and key.endswith("_")):
-            local_objs.setdefault(key, sub_cfg)
-
-    if target:
-        path = ('whetstone.core.' + cfg._target_).split(".")
-
-        # problem is, path could point to a method, class or method of a class!
-        mod_len = 1
-        while True:
-            try:
-                target = import_module(".".join(path[:mod_len]))
-                mod_len += 1
-            except ModuleNotFoundError:
-                break
-
-        while True:
-            try:
-                target = getattr(target, path[mod_len - 1])
-                mod_len += 1
-            except (AttributeError, IndexError):
-                break
-
-        args = cfg._args_ if "_args_" in cfg else []
-
-        if not callable(target):
-            raise ModuleNotFoundError(cfg._target_)
-
-        return target(*args, **local_objs)
-
-    return local_objs
-
 
 def mellowmax(t: Tensor, alpha=1.0, dim=-1):
     return 1.0 / alpha * (torch.logsumexp(alpha * t, dim=dim) - torch.log(
